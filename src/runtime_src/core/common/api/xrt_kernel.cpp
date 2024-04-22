@@ -2091,8 +2091,6 @@ class run_impl
       payload += sizeof(ert_dpu_data_preempt) / sizeof(uint32_t);
     }
 
-    std::cout << "ert_dpu_data_count " << ert_dpu_data_count << std::endl;
-
     // Return payload past the ert_dpu_data structures
     return payload;
   }
