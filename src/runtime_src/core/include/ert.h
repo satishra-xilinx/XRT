@@ -172,6 +172,35 @@ struct ert_dpu_data {
   uint32_t chained;                  /* number of following ert_dpu_data elements */
 };
 
+/**
+ * struct ert_dpu_data_preempt - interpretation of data payload for ERT_START_DPU_PRE
+ *
+ * @instruction_buffer:       address of instruction buffer
+ * @instruction_buffer_size:  size of instruction buffer in bytes
+ * @save_buffer:              address of instruction buffer
+ * @save_buffer_size:         size of instruction buffer in bytes
+ * @restore_buffer:           address of instruction buffer
+ * @restore_buffer_size:      size of instruction buffer in bytes
+ *
+ * The ert_dpu_data_preempt is prepended to data payload of ert_start_kernel_cmd
+ * after any extra cu masks.  The payload count of the ert packet is
+ * incremented with the size (words) of ert_dpu_data_preempt elements
+ * prepended to the data payload.
+ *
+ * The data payload for ERT_START_DPU is interpreted as fixed instruction
+ * buffer address along with instruction count, followed by regular kernel
+ * arguments.
+ */
+struct ert_dpu_data_preempt {
+  uint64_t instruction_buffer;       /* buffer address 2 words */
+  uint32_t instruction_buffer_size;  /* size of buffer in bytes */
+  uint64_t save_buffer;              /* buffer address 2 words */
+  uint32_t save_buffer_size;         /* size of buffer in bytes */
+  uint64_t restore_buffer;           /* buffer address 2 words */
+  uint32_t restore_buffer_size;      /* size of buffer in bytes */
+  uint32_t chained;                  /* number of following ert_dpu_data elements */
+};
+
 #ifndef U30_DEBUG
 #define ert_write_return_code(cmd, value) \
 do { \
@@ -541,6 +570,7 @@ struct cu_cmd_state_timestamps {
  * @ERT_SK_UNCONFIG:    unconfigure a soft kernel
  * @ERT_START_KEY_VAL:  same as ERT_START_CU but with key-value pair flavor
  * @ERT_START_DPU:      instruction buffer command format
+ * @ERT_START_DPU_PREEMPT:      instruction buffer with preemption command format
  */
 enum ert_cmd_opcode {
   ERT_START_CU      = 0,
@@ -562,6 +592,7 @@ enum ert_cmd_opcode {
   ERT_ACCESS_TEST_C = 16,
   ERT_ACCESS_TEST   = 17,
   ERT_START_DPU     = 18,
+  ERT_START_DPU_PREEMPT     = 19
 };
 
 /**
@@ -883,6 +914,11 @@ ert_valid_opcode(struct ert_packet *pkt)
     /* 1 mandatory cumask + extra_cu_masks + size (in words) of ert_dpu_data */
     valid = (skcmd->count >= 1+ skcmd->extra_cu_masks + sizeof(struct ert_dpu_data) / sizeof(uint32_t));
     break;
+  case ERT_START_DPU_PREEMPT:
+    skcmd = to_start_krnl_pkg(pkt);
+    /* 1 mandatory cumask + extra_cu_masks + size (in words) of ert_dpu_data_preempt */
+    valid = (skcmd->count >= 1+ skcmd->extra_cu_masks + sizeof(struct ert_dpu_data_preempt) / sizeof(uint32_t));
+    break;
   case ERT_START_KEY_VAL:
     skcmd = to_start_krnl_pkg(pkt);
     /* 1 cu mask */
@@ -960,6 +996,25 @@ get_ert_dpu_data_next(struct ert_dpu_data* dpu_data)
   if (dpu_data->chained == 0)
     return NULL;
   
+  return dpu_data + 1;
+}
+
+static inline struct ert_dpu_data_preempt*
+get_ert_dpu_data_preempt(struct ert_start_kernel_cmd* pkt)
+{
+  if (pkt->opcode != ERT_START_DPU_PREEMPT)
+    return NULL;
+
+  // past extra cu_masks embedded in the packet data
+  return (struct ert_dpu_data_preempt*) (pkt->data + pkt->extra_cu_masks);
+}
+
+static inline struct ert_dpu_data_preempt*
+get_ert_dpu_data_preempt_next(struct ert_dpu_data_preempt* dpu_data)
+{
+  if (dpu_data->chained == 0)
+    return NULL;
+
   return dpu_data + 1;
 }
 

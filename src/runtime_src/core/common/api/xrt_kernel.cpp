@@ -1481,7 +1481,20 @@ private:
       kcmd->opcode = (protocol == control_type::fa) ? ERT_START_FA : ERT_START_CU;
       break;
     case kernel_type::dpu :
-      kcmd->opcode = (m_module ? ERT_START_DPU : ERT_START_CU);
+      if(m_module)
+      {
+        // TBD: this is temporary until ELF has save/restore sections
+        char* env = std::getenv("XRT_PREEMPT_MODE");
+        if(std::stoi(env) == 1)
+            kcmd->opcode = ERT_START_DPU_PREEMPT;
+        else
+            kcmd->opcode = ERT_START_DPU;
+      }
+      else
+      {
+        kcmd->opcode = ERT_START_CU;
+      }
+
       break;
     case kernel_type::none:
       throw std::runtime_error("Internal error: wrong kernel type can't set cmd opcode");
@@ -2064,6 +2077,26 @@ class run_impl
     return payload;
   }
 
+  uint32_t*
+  initialize_dpu_preempt(uint32_t* payload)
+  {
+    auto addr_and_size = xrt_core::module_int::get_ctrlcode_addr_and_size(m_module);
+
+    size_t ert_dpu_data_count = addr_and_size.size();
+    for (auto [addr, size] : addr_and_size) {
+      auto dpu = reinterpret_cast<ert_dpu_data_preempt*>(payload);
+      dpu->instruction_buffer = addr;
+      dpu->instruction_buffer_size = size;
+      dpu->chained = --ert_dpu_data_count;
+      payload += sizeof(ert_dpu_data_preempt) / sizeof(uint32_t);
+    }
+
+    std::cout << "ert_dpu_data_count " << ert_dpu_data_count << std::endl;
+
+    // Return payload past the ert_dpu_data structures
+    return payload;
+  }
+
   // Initialize the command packet with special case for DPU kernels
   uint32_t*
   initialize_command(kernel_command* pkt)
@@ -2073,6 +2106,12 @@ class run_impl
 
     if (kcmd->opcode == ERT_START_DPU) {
       auto payload_past_dpu = initialize_dpu(payload);
+
+      // adjust count to include the prepended ert_dpu_data structures
+      kcmd->count += payload_past_dpu - payload;
+      payload = payload_past_dpu;
+    } else if (kcmd->opcode == ERT_START_DPU_PREEMPT) {
+      auto payload_past_dpu = initialize_dpu_preempt(payload);
 
       // adjust count to include the prepended ert_dpu_data structures
       kcmd->count += payload_past_dpu - payload;
